@@ -1,0 +1,29 @@
+mongo-url = "mongodb://mongo:27017/?replicaSet=rs0"
+elasticsearch-urls = ["http://es:9200"]
+
+# Sincroniza todas las colecciones por defecto
+direct-read-namespaces = ["appdb.products", "appdb.users"]
+
+# Mapea cada colección a su índice
+[[mapping]]
+namespace = "appdb.products"
+index = "products"
+
+[[mapping]]
+namespace = "appdb.users"
+index = "users"
+
+# Eliminar del índice cuando se borre en Mongo
+dropped-collections = false
+dropped-databases = false
+resume = true
+resume-name = "monstache-sync"
+verbose = true
+
+# Opcional: transformar documento antes de indexar
+# js-pipeline = """
+# module.exports = function(doc, ns) {
+#   if (ns == 'appdb.products') { doc.search_name = (doc.name || '').toLowerCase(); }
+#   return doc;
+# }
+# """
