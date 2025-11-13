@@ -73,31 +73,33 @@ docker-compose logs -f mongo
 
 ## ✅ Verificar que Todo Funciona
 
-### 1. Probar la creación de un producto
+### 1. Poblar datos de ejemplo (recrea índices e inserta dataset)
 
 ```powershell
-$body = @{
-    name = "Producto de Prueba"
-    brand = "Marca Test"
-    price = 99.99
-    tags = @("test", "ejemplo")
-    description = "Este es un producto de prueba"
-} | ConvertTo-Json -Depth 1
-
-Invoke-RestMethod -Uri http://localhost:3000/products -Method Post -Body $body -ContentType "application/json"
+cd api
+npm install
+npm run seed
 ```
 
-### 2. Buscar el producto (esperar 2 segundos para la sincronización)
+Este comando elimina y vuelve a crear los índices `recipes` e `ingredients` en Elasticsearch con el mapping esperado, limpia MongoDB y vuelve a insertar los datos de ejemplo. Úsalo cada vez que quieras reiniciar el entorno con los datos base.
+
+### 2. Listar las primeras recetas
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:3000/recipes?size=3" -Method Get
+```
+
+### 3. Buscar recetas con ingredientes específicos (Esperar 2 segundos tras crear datos)
 
 ```powershell
 Start-Sleep -Seconds 2
-Invoke-RestMethod -Uri "http://localhost:3000/search?q=prueba&refresh=true" -Method Get
+Invoke-RestMethod -Uri "http://localhost:3000/search/recipes?q=tomate&ingredients=Albahaca%20fresca&refresh=true" -Method Get
 ```
 
-### 3. Filtrar por marca
+### 4. Consultar ingredientes disponibles por nombre
 
 ```powershell
-Invoke-RestMethod -Uri "http://localhost:3000/search?brand=Marca Test" -Method Get
+Invoke-RestMethod -Uri "http://localhost:3000/ingredients?q=aceite" -Method Get
 ```
 
 ## 📚 Endpoints Disponibles
@@ -107,47 +109,78 @@ Invoke-RestMethod -Uri "http://localhost:3000/search?brand=Marca Test" -Method G
 Invoke-RestMethod -Uri http://localhost:3000/health -Method Get
 ```
 
-### Crear Producto
+### Listar Ingredientes
 ```powershell
-$body = @{ name = "Nombre"; brand = "Marca"; price = 100; tags = @("tag1") } | ConvertTo-Json -Depth 1
-Invoke-RestMethod -Uri http://localhost:3000/products -Method Post -Body $body -ContentType "application/json"
+Invoke-RestMethod -Uri "http://localhost:3000/ingredients?category=Vegetal" -Method Get
 ```
 
-### Obtener Producto por ID
+### Crear Ingrediente
 ```powershell
-Invoke-RestMethod -Uri http://localhost:3000/products/ID_DEL_PRODUCTO -Method Get
+$body = @{
+    name = "Pepino"
+    category = "Vegetal"
+    description = "Refrescante y crujiente"
+    seasonality = @("Verano")
+} | ConvertTo-Json -Depth 3
+
+Invoke-RestMethod -Uri http://localhost:3000/ingredients -Method Post -Body $body -ContentType "application/json"
 ```
 
-### Actualizar Producto
+### Actualizar Ingrediente
 ```powershell
-$body = @{ price = 150 } | ConvertTo-Json -Depth 1
-Invoke-RestMethod -Uri http://localhost:3000/products/ID_DEL_PRODUCTO -Method Patch -Body $body -ContentType "application/json"
+$body = @{ storage = "Refrigerado hasta 5 dias" } | ConvertTo-Json -Depth 1
+Invoke-RestMethod -Uri http://localhost:3000/ingredients/ID_DEL_INGREDIENTE -Method Patch -Body $body -ContentType "application/json"
 ```
 
-### Eliminar Producto
+### Listar Recetas
 ```powershell
-Invoke-RestMethod -Uri http://localhost:3000/products/ID_DEL_PRODUCTO -Method Delete
+Invoke-RestMethod -Uri "http://localhost:3000/recipes?difficulty=easy&maxTime=30" -Method Get
 ```
 
-### Buscar Productos
+### Crear Receta
 ```powershell
-# Búsqueda simple
-Invoke-RestMethod -Uri "http://localhost:3000/search?q=laptop" -Method Get
+$body = @{
+    title = "Ensalada rapida de tomate"
+    cuisine = "Mediterranea"
+    difficulty = "easy"
+    servings = 2
+    tags = @("ensalada", "rapido")
+    ingredients = @(
+        @{ name = "Tomate"; quantity = 2; unit = "unidad" },
+        @{ name = "Aceite de oliva virgen extra"; quantity = 1; unit = "cda" },
+        @{ name = "Sal marina"; quantity = 0.25; unit = "cdita" }
+    )
+} | ConvertTo-Json -Depth 4
 
-# Búsqueda con filtros
-Invoke-RestMethod -Uri "http://localhost:3000/search?q=laptop&brand=Dell&minPrice=500&maxPrice=1000" -Method Get
-
-# Con refresh (resultados inmediatos)
-Invoke-RestMethod -Uri "http://localhost:3000/search?q=laptop&refresh=true" -Method Get
+Invoke-RestMethod -Uri http://localhost:3000/recipes -Method Post -Body $body -ContentType "application/json"
 ```
 
-**Parámetros de búsqueda:**
-- `q`: Texto a buscar (name, description, tags)
-- `brand`: Filtrar por marca exacta
-- `minPrice`: Precio mínimo
-- `maxPrice`: Precio máximo
-- `from`: Paginación - índice inicial (default: 0)
-- `size`: Cantidad de resultados (default: 10)
+### Obtener Receta por ID o Slug
+```powershell
+Invoke-RestMethod -Uri http://localhost:3000/recipes/espagueti-al-pomodoro -Method Get
+```
+
+### Buscar Recetas en Elasticsearch
+```powershell
+# Búsqueda por texto y dificultad
+Invoke-RestMethod -Uri "http://localhost:3000/search/recipes?q=garbanzos&difficulty=easy" -Method Get
+
+# Filtrar por ingredientes y tiempo máximo
+Invoke-RestMethod -Uri "http://localhost:3000/search/recipes?ingredients=Garbanzos%20cocidos&maxTime=40" -Method Get
+
+# Con refresh (para ver cambios al instante)
+Invoke-RestMethod -Uri "http://localhost:3000/search/recipes?q=quinua&refresh=true" -Method Get
+```
+
+**Parámetros de búsqueda (`/search/recipes`):**
+- `q`: Texto libre (title, description, tags, ingredients.name, cuisine)
+- `cuisine`: Coincidencia exacta de cocina (ej: `Mediterranea`)
+- `difficulty`: `easy`, `medium` o `hard`
+- `tags`: Lista separada por comas
+- `ingredients`: Lista separada por comas (se usa búsqueda difusa)
+- `maxTime`: Tiempo máximo total en minutos
+- `from`: Desplazamiento para paginación (default: 0)
+- `size`: Cantidad de resultados (default: 10, máx. 100)
 - `refresh`: Forzar refresh del índice (`true`/`false`)
 
 ## 🛑 Detener el Sistema
@@ -209,7 +242,7 @@ docker exec mongo mongosh --eval "rs.status()" --quiet
 
 ### Verificar índice en Elasticsearch
 ```powershell
-Invoke-RestMethod -Uri http://localhost:9200/products/_count -Method Get
+Invoke-RestMethod -Uri http://localhost:9200/recipes/_count -Method Get
 ```
 
 ### Ver todos los índices en Elasticsearch
@@ -247,16 +280,16 @@ Invoke-RestMethod -Uri http://localhost:9200/_cat/indices?v -Method Get
    docker-compose restart monstache
    ```
 
-### Los productos no aparecen en búsquedas
+### Las recetas no aparecen en búsquedas
 1. Verificar que Monstache está corriendo:
    ```powershell
    docker-compose ps monstache
    ```
 2. Forzar refresh en la búsqueda:
    ```powershell
-   Invoke-RestMethod -Uri "http://localhost:3000/search?q=producto&refresh=true" -Method Get
+Invoke-RestMethod -Uri "http://localhost:3000/search/recipes?q=tomate&refresh=true" -Method Get
    ```
-3. Esperar 1-2 segundos después de crear un producto antes de buscarlo.
+3. Esperar 1-2 segundos después de crear o actualizar una receta antes de buscarla.
 
 ### Error al iniciar servicios
 1. Verificar que Docker Desktop está corriendo
@@ -306,7 +339,7 @@ docker-compose down -v
 
 1. **Primera vez**: La primera vez que ejecutes `docker-compose up -d`, puede tardar varios minutos en descargar las imágenes.
 
-2. **Sincronización**: Monstache sincroniza automáticamente los cambios de MongoDB a Elasticsearch. Hay un pequeño delay (~1 segundo) antes de que los nuevos productos sean buscables.
+2. **Sincronización**: Monstache sincroniza automáticamente los cambios de MongoDB a Elasticsearch. Hay un pequeño delay (~1 segundo) antes de que las nuevas recetas sean buscables.
 
 3. **Datos persistentes**: Los datos se guardan en volúmenes de Docker, por lo que sobreviven a reinicios del sistema si usas `docker-compose down` (sin `-v`).
 

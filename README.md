@@ -1,6 +1,6 @@
-# CookingMama API - Sistema de Gestión de Productos
+# CookingMama API - Sistema de Recetas y Alimentos
 
-Sistema completo de gestión de productos con MongoDB, Elasticsearch y sincronización en tiempo real.
+Plataforma completa para gestionar recetas, ingredientes y búsquedas potentes con MongoDB, Elasticsearch y sincronización en tiempo real.
 
 ## 🚀 Inicio Rápido
 
@@ -42,33 +42,54 @@ Para una guía detallada con todos los comandos y solución de problemas, consul
 - **API REST**: Node.js + Express (Puerto 3000)
 - **Base de Datos**: MongoDB con Replica Set (Puerto 27017)
 - **Motor de Búsqueda**: Elasticsearch (Puerto 9200)
-- **Sincronización**: Monstache (MongoDB → Elasticsearch)
+- **Sincronización**: Monstache mantiene índices `recipes` e `ingredients` actualizados en tiempo real
 - **Dashboard**: Kibana (Puerto 5601)
 
 ## 🔗 Endpoints Principales
 
-- `GET /health` - Estado del sistema
-- `POST /products` - Crear producto
-- `GET /products/:id` - Obtener producto
-- `PATCH /products/:id` - Actualizar producto
-- `DELETE /products/:id` - Eliminar producto
-- `GET /search?q=...&brand=...&minPrice=...&maxPrice=...` - Buscar productos
+- `GET /health` - Estado del sistema y conteo de colecciones
+- `GET /ingredients` - Listar ingredientes (filtros por nombre/categoría)
+- `GET /ingredients/:id` - Obtener ingrediente por ID
+- `POST /ingredients` - Crear ingrediente
+- `PATCH /ingredients/:id` - Actualizar ingrediente
+- `DELETE /ingredients/:id` - Eliminar ingrediente
+- `GET /recipes` - Listar recetas con filtros por texto, cocina, dificultad, ingredientes o tiempo
+- `GET /recipes/:idOrSlug` - Obtener receta por ID o slug
+- `POST /recipes` - Crear receta (resuelve automáticamente los ingredientes por nombre o ID)
+- `PATCH /recipes/:idOrSlug` - Actualizar receta
+- `DELETE /recipes/:idOrSlug` - Eliminar receta
+- `GET /search/recipes` - Buscar recetas en Elasticsearch con relevancia completa
+
+## 📦 Poblar la base de datos (seed)
+
+```powershell
+cd api
+npm install
+npm run seed
+```
+
+El script recrea los índices `recipes` e `ingredients` en Elasticsearch con el mapping correcto, limpia MongoDB y carga 35 ingredientes y 12 recetas listos para experimentar con búsquedas.
 
 ## 📖 Ejemplo de Uso
 
 ```powershell
-# Crear un producto
+# Crear una nueva receta (los ingredientes pueden ir por nombre)
 $body = @{
-    name = "Laptop"
-    brand = "Dell"
-    price = 999
-    tags = @("electronics", "computers")
-} | ConvertTo-Json -Depth 1
+    title = "Ensalada express de tomate"
+    cuisine = "Mediterranea"
+    difficulty = "easy"
+    servings = 2
+    ingredients = @(
+        @{ name = "Tomate"; quantity = 2; unit = "unidad" },
+        @{ name = "Aceite de oliva virgen extra"; quantity = 1; unit = "cda" },
+        @{ name = "Sal marina"; quantity = 0.25; unit = "cdita" }
+    )
+} | ConvertTo-Json -Depth 4
 
-Invoke-RestMethod -Uri http://localhost:3000/products -Method Post -Body $body -ContentType "application/json"
+Invoke-RestMethod -Uri http://localhost:3000/recipes -Method Post -Body $body -ContentType "application/json"
 
-# Buscar productos
-Invoke-RestMethod -Uri "http://localhost:3000/search?q=laptop&brand=Dell" -Method Get
+# Buscar recetas con tomate en Elasticsearch
+Invoke-RestMethod -Uri "http://localhost:3000/search/recipes?q=tomate&ingredients=Albahaca%20fresca&refresh=true" -Method Get
 ```
 
 ## 📝 Notas
@@ -79,9 +100,5 @@ Invoke-RestMethod -Uri "http://localhost:3000/search?q=laptop&brand=Dell" -Metho
 
 ## 🆘 Ayuda
 
-Consulta **[GUIA.md](./GUIA.md)** para:
-- Solución de problemas
-- Comandos útiles
-- Detalles de configuración
-- Ejemplos completos
+Consulta **[GUIA.md](./GUIA.md)** para configuraciones avanzadas, monitoreo de Monstache y ejemplos adicionales de consultas.
 

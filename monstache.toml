@@ -8,13 +8,17 @@ resume = true
 resume-name = "monstache-sync"
 verbose = true
 
-# Sincroniza todas las colecciones por defecto
-direct-read-namespaces = ["appdb.products", "appdb.users"]
+# Sincroniza colecciones clave
+direct-read-namespaces = ["appdb.recipes", "appdb.ingredients", "appdb.users"]
 
-# Mapea cada colección a su índice
+# Mapea cada colección a su índice correspondiente
 [[mapping]]
-namespace = "appdb.products"
-index = "products"
+namespace = "appdb.recipes"
+index = "recipes"
+
+[[mapping]]
+namespace = "appdb.ingredients"
+index = "ingredients"
 
 [[mapping]]
 namespace = "appdb.users"
