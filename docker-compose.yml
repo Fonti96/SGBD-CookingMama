@@ -38,6 +38,15 @@ services:
     volumes:
       - ./monstache.toml:/monstache.toml
     command: ["-f", "/monstache.toml"]
+  
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"        
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
 
   api:
     build: ./api
@@ -46,9 +55,12 @@ services:
       - mongo
       - es
       - mongo-init-replica
+      - ollama
     environment:
       - MONGO_URL=mongodb://mongo:27017/appdb?replicaSet=rs0
       - ELASTIC_URL=http://es:9200
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=llama3.2
     ports:
       - "3000:3000"
     restart: unless-stopped
@@ -56,3 +68,4 @@ services:
 volumes:
   mongo_data:
   es_data:
+  ollama_data:

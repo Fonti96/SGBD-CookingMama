@@ -4,6 +4,7 @@ import cors from 'cors';
 import { Client } from '@elastic/elasticsearch';
 import { Ingredient } from './models/ingredient.js';
 import { Recipe } from './models/recipe.js';
+import { registerChatRoute } from './chatRoute.js';
 
 const app = express();
 app.use(cors());
@@ -548,5 +549,7 @@ app.get(['/search/recipes', '/search'], async (req, res) => {
     res.status(400).json({ ok: false, error: e.message });
   }
 });
+
+registerChatRoute(app);
 
 app.listen(3000, () => console.log('🚀 API de recetas en http://localhost:3000'));
