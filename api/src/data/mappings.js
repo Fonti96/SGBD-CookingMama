@@ -23,11 +23,10 @@ export const recipeIndexDefinition = {
     ],
     properties: {
       title: {
-        type: 'text',
-        analyzer: 'multi_lang',
-        fields: { keyword: { type: 'keyword' } }
+        type: 'search_as_you_type',
+        analyzer: 'multi_lang'
       },
-      description: { type: 'text', analyzer: 'multi_lang' },
+      description: { type: 'search_as_you_type', analyzer: 'multi_lang' },
       tags: { type: 'keyword' },
       cuisine: { type: 'keyword' },
       course: { type: 'keyword' },
@@ -40,9 +39,8 @@ export const recipeIndexDefinition = {
         type: 'nested',
         properties: {
           name: {
-            type: 'text',
-            analyzer: 'multi_lang',
-            fields: { keyword: { type: 'keyword' } }
+            type: 'search_as_you_type',
+            analyzer: 'multi_lang'
           },
           unit: { type: 'keyword' },
           quantity: { type: 'float' },

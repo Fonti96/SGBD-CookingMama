@@ -17,6 +17,9 @@ const MONGO_URL = process.env.MONGO_URL
   || 'mongodb://localhost:27017/appdb?replicaSet=rs0';
 const ELASTIC_URL = process.env.ELASTIC_URL || 'http://localhost:9200';
 
+console.log('🔌 MONGO_URL:', MONGO_URL);
+console.log('🔌 ELASTIC_URL:', ELASTIC_URL);
+
 // ---- Conexión Mongo con logs y timeout razonable ----
 const connectMongo = async (retries = 10) => {
   for (let i = 0; i < retries; i++) {
@@ -370,6 +373,24 @@ app.post('/recipes', async (req, res) => {
       ingredients: resolvedIngredients
     });
 
+    // Index in Elasticsearch
+    try {
+      const plainDoc = recipe.toObject();
+      const id = plainDoc._id.toString();
+      delete plainDoc._id;
+      delete plainDoc.__v;
+
+      await es.index({
+        index: 'recipes',
+        id,
+        document: plainDoc,
+        refresh: 'wait_for' // Wait for search availability
+      });
+    } catch (esErr) {
+      console.error('⚠️ Error indexing new recipe:', esErr.message);
+      // We don't fail the request, just log the error
+    }
+
     res.status(201).json(recipe);
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -413,6 +434,23 @@ app.patch('/recipes/:idOrSlug', async (req, res) => {
       { new: true, runValidators: true }
     );
 
+    // Update in Elasticsearch
+    try {
+      const plainDoc = recipe.toObject();
+      const id = plainDoc._id.toString();
+      delete plainDoc._id;
+      delete plainDoc.__v;
+
+      await es.index({
+        index: 'recipes',
+        id,
+        document: plainDoc,
+        refresh: 'wait_for'
+      });
+    } catch (esErr) {
+      console.error('⚠️ Error updating recipe in ES:', esErr.message);
+    }
+
     res.json(recipe);
   } catch (e) {
     res.status(400).json({ error: e.message });
@@ -429,6 +467,20 @@ app.delete('/recipes/:idOrSlug', async (req, res) => {
     const recipe = await Recipe.findOneAndDelete(baseQuery);
     if (!recipe) {
       return res.status(404).json({ error: 'Receta no encontrada' });
+    }
+
+    // Delete from Elasticsearch
+    try {
+      await es.delete({
+        index: 'recipes',
+        id: recipe._id.toString(),
+        refresh: 'wait_for'
+      });
+    } catch (esErr) {
+      // Ignore 404 from ES (already deleted or never existed)
+      if (esErr.meta && esErr.meta.statusCode !== 404) {
+        console.error('⚠️ Error deleting recipe from ES:', esErr.message);
+      }
     }
 
     res.json({ ok: true });
@@ -452,6 +504,12 @@ app.get(['/search/recipes', '/search'], async (req, res) => {
       refresh
     } = req.query;
 
+    import('fs').then(fs => {
+      fs.appendFileSync('debug_req.log', `Params: ${JSON.stringify({ q, ingredients, cuisine })}\n`);
+    });
+
+    console.log('🔍 Search Params:', { q, ingredients, cuisine });
+
     // Si se solicita refresh explícitamente o después de operaciones recientes
     if (refresh === 'true') {
       try {
@@ -468,8 +526,18 @@ app.get(['/search/recipes', '/search'], async (req, res) => {
       must.push({
         multi_match: {
           query: q,
-          fields: ['title^3', 'description', 'tags', 'ingredients.name', 'cuisine'],
-          fuzziness: 'AUTO'
+          type: 'bool_prefix',
+          fields: [
+            'title',
+            'title._2gram',
+            'title._3gram',
+            'description',
+            'description._2gram',
+            'description._3gram',
+            'ingredients.name',
+            'ingredients.name._2gram',
+            'ingredients.name._3gram'
+          ]
         }
       });
     }
@@ -482,6 +550,17 @@ app.get(['/search/recipes', '/search'], async (req, res) => {
     const normalizedDifficulty = normalizeDifficulty(difficulty);
     if (normalizedDifficulty) {
       filter.push({ term: { 'difficulty.keyword': normalizedDifficulty } });
+    } else if (difficulty) {
+      // Support multiple difficulty values separated by comma
+      const difficultyList = Array.isArray(difficulty)
+        ? difficulty.flatMap(d => d.split(',').map(str => str.trim()))
+        : (typeof difficulty === 'string' ? difficulty.split(',').map(str => str.trim()) : []);
+      const validDifficulties = difficultyList
+        .map(d => normalizeDifficulty(d))
+        .filter(Boolean);
+      if (validDifficulties.length > 0) {
+        filter.push({ terms: { 'difficulty.keyword': validDifficulties } });
+      }
     }
 
     const tagList = Array.isArray(tags)
@@ -494,19 +573,34 @@ app.get(['/search/recipes', '/search'], async (req, res) => {
     const ingredientList = Array.isArray(ingredients)
       ? ingredients.flatMap(t => t.split(',').map(str => str.trim()))
       : (typeof ingredients === 'string' ? ingredients.split(',').map(str => str.trim()) : []);
+
     if (ingredientList.length) {
-      ingredientList
+      // Use nested query for ingredients
+      const ingredientQueries = ingredientList
         .filter(Boolean)
-        .forEach(term => {
-          must.push({
-            match: {
-              'ingredients.name': {
-                query: term,
-                fuzziness: 'AUTO'
+        .map(term => ({
+          match: {
+            'ingredients.name': {
+              query: term
+              // Removed fuzziness: 'AUTO' as it can cause issues with search_as_you_type fields
+              // and exact matching is usually preferred for filters.
+            }
+          }
+        }));
+
+      if (ingredientQueries.length > 0) {
+        must.push({
+          nested: {
+            path: 'ingredients',
+            query: {
+              bool: {
+                should: ingredientQueries,
+                minimum_should_match: 1
               }
             }
-          });
+          }
         });
+      }
     }
 
     if (maxTime) {
@@ -528,6 +622,22 @@ app.get(['/search/recipes', '/search'], async (req, res) => {
           must: must.length ? must : [{ match_all: {} }],
           filter
         }
+      },
+      // Add aggregations for dynamic filtering
+      aggs: {
+        all_ingredients: {
+          nested: {
+            path: 'ingredients'
+          },
+          aggs: {
+            ids: {
+              terms: {
+                field: 'ingredients.ingredientId', // Use ingredientId (keyword)
+                size: 100
+              }
+            }
+          }
+        }
       }
     };
 
@@ -541,9 +651,14 @@ app.get(['/search/recipes', '/search'], async (req, res) => {
       };
     }
 
+    console.log('🔍 ES Query:', JSON.stringify(searchPayload, null, 2));
     const r = await es.search(searchPayload);
 
-    res.json(r.hits);
+    res.json({
+      hits: r.hits.hits,
+      total: r.hits.total,
+      aggregations: r.aggregations
+    });
   } catch (e) {
     console.error('Search error:', e);
     res.status(400).json({ ok: false, error: e.message });
